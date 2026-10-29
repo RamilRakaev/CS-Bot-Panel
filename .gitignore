@@ -1,0 +1,14 @@
+# В git попадают только админ-меню, его настройки и инструкция.
+# Игра, логи и чужие пакеты ботов остаются на диске.
+
+*
+!*/
+!.gitignore
+!README.md
+!admin_panel/**
+!tools/**
+!cstrike/userconfig.cfg
+!cstrike/addons/metamod/plugins.ini
+!cstrike/addons/amxmodx/plugins/admin_panel.amxx
+
+admin_panel/bot_profiles.db
