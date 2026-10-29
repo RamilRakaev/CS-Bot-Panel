@@ -1,5 +1,5 @@
-# В git попадают только админ-меню, его настройки и инструкция.
-# Игра, логи и чужие пакеты ботов остаются на диске.
+# В git попадают панель, MetaMod, AMX Mod X, ReAPI, YaPB и POD-Bot.
+# Сама игра, логи и файлы сессий остаются на диске.
 
 *
 !*/
@@ -8,7 +8,13 @@
 !admin_panel/**
 !tools/**
 !cstrike/userconfig.cfg
-!cstrike/addons/metamod/plugins.ini
-!cstrike/addons/amxmodx/plugins/admin_panel.amxx
+!cstrike/liblist.gam
+!cstrike/addons/metamod/**
+!cstrike/addons/amxmodx/**
+!cstrike/addons/yapb/**
+!cstrike/addons/podbot/**
 
 admin_panel/bot_profiles.db
+cstrike/addons/amxmodx/logs/**
+cstrike/addons/yapb/data/logs/**
+cstrike/addons/yapb/data/train/**
