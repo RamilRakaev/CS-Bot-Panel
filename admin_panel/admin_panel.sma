@@ -352,6 +352,14 @@ PrintChat(id, const msg[], any:...) {
 	client_print(id, print_chat, "%s", fixed)
 }
 
+PrintConsole(id, const msg[], any:...) {
+	new formatted[192], fixed[192]
+	vformat(formatted, charsmax(formatted), msg, 3)
+	FixText(formatted, fixed, charsmax(fixed))
+	client_print(id, print_console, "%s", fixed)
+	server_print("%s", fixed)
+}
+
 ShowMain(id) {
 	g_State[id] = ST_MAIN
 	new menu[512]
@@ -361,9 +369,15 @@ ShowMain(id) {
 
 ShowMore(id) {
 	g_State[id] = ST_MORE
-	new menu[384]
-	formatex(menu, charsmax(menu), "\yДобавить бота^n^n\r1. \yДобавить YaPB бота^n\r2. \yДобавить POD бота^n\r3. \y%s^n^n\r9. \yНазад^n\r0. \yВыход", g_BotsStopped ? "Включить всех ботов" : "Остановить всех ботов")
-	ShowFixed(id, MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_9|MENU_KEY_0, menu, MENU_TIME, MENU_NAME)
+	new menu[512]
+	new zombie[48], pod[64]
+	ZombieLabel(zombie, charsmax(zombie))
+	if (ZombieOn())
+		formatex(pod, charsmax(pod), "\d2. \dДобавить POD бота")
+	else
+		formatex(pod, charsmax(pod), "\r2. \yДобавить POD бота")
+	formatex(menu, charsmax(menu), "\yДобавить бота^n^n\r1. \yДобавить YaPB бота^n%s^n\r3. \y%s^n\r4. \y%s^n^n\r9. \yНазад^n\r0. \yВыход", pod, g_BotsStopped ? "Включить всех ботов" : "Остановить всех ботов", zombie)
+	ShowFixed(id, MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_9|MENU_KEY_0, menu, MENU_TIME, MENU_NAME)
 }
 
 MoreChoice(id, key) {
@@ -375,10 +389,17 @@ MoreChoice(id, key) {
 		return
 	if (key == 0)
 		OpenBot(id, KIND_YAPB)
-	else if (key == 1)
+	else if (key == 1) {
+		if (ZombieOn()) {
+			RefusePod(id)
+			return
+		}
 		OpenBot(id, KIND_POD)
+	}
 	else if (key == 2)
 		ToggleBots(id)
+	else if (key == 3)
+		OpenZombie(id)
 }
 
 ToggleBots(id) {
@@ -394,6 +415,43 @@ ToggleBots(id) {
 		PrintChat(id, "[Admin Panel] Боты остановлены")
 	else
 		PrintChat(id, "[Admin Panel] Боты включены")
+	ShowMore(id)
+}
+
+ZombieLabel(dest[], len) {
+	if (ZombieOn())
+		formatex(dest, len, "Выключить зомби режим")
+	else
+		formatex(dest, len, "Зомби режим")
+}
+
+bool:ZombieOn() {
+	return bool:(cvar_exists("zombie_mode") && get_cvar_num("zombie_mode"))
+}
+
+RefusePod(id) {
+	PrintConsole(id, "[Admin Panel] POD-ботов нельзя добавлять в зомби-режиме: они не атакуют зомби.")
+	ShowMore(id)
+}
+
+OpenZombie(id) {
+	if (!cvar_exists("zombie_mode")) {
+		PrintChat(id, "[Admin Panel] Зомби-режим недоступен")
+		ShowMore(id)
+		return
+	}
+	client_cmd(id, "zombie_toggle")
+	ShowMore(id)
+	remove_task(200 + id)
+	new parm[1]
+	parm[0] = id
+	set_task(0.2, "RefreshZombieMenu", 200 + id, parm, sizeof parm)
+}
+
+public RefreshZombieMenu(parm[]) {
+	new id = parm[0]
+	if (!is_user_connected(id) || g_State[id] != ST_MORE)
+		return
 	ShowMore(id)
 }
 
@@ -595,8 +653,13 @@ AddBot(id, bool:ct) {
 	switch (g_Kind[id]) {
 		case KIND_YAPB:
 			client_cmd(id, "yapb %s %d %d", ct ? "add_ct" : "add_t", g_Skill[id], g_Person[id])
-		case KIND_POD:
+		case KIND_POD: {
+			if (ZombieOn()) {
+				RefusePod(id)
+				return
+			}
 			client_cmd(id, "pb add %d %d %d 5", g_Skill[id], g_Person[id], ct ? 2 : 1)
+		}
 		default: {
 			client_cmd(id, "bot_difficulty %d", g_Skill[id])
 			client_cmd(id, ct ? "bot_add_ct" : "bot_add_t")
