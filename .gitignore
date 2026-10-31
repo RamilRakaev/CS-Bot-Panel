@@ -6,6 +6,7 @@
 !.gitignore
 !README.md
 !admin_panel/**
+!deathmatch/**
 !tools/**
 !cstrike/userconfig.cfg
 !cstrike/liblist.gam

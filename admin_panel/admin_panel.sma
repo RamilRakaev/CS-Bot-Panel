@@ -369,15 +369,17 @@ ShowMain(id) {
 
 ShowMore(id) {
 	g_State[id] = ST_MORE
-	new menu[512]
-	new zombie[48], pod[64]
+	new menu[768]
+	new zombie[48], pod[64], dm[48], tdm[48]
 	ZombieLabel(zombie, charsmax(zombie))
+	DmLabel(1, dm, charsmax(dm))
+	DmLabel(2, tdm, charsmax(tdm))
 	if (ZombieOn())
-		formatex(pod, charsmax(pod), "\d2. \dДобавить POD бота")
+		formatex(pod, charsmax(pod), "\d2. \dPOD")
 	else
-		formatex(pod, charsmax(pod), "\r2. \yДобавить POD бота")
-	formatex(menu, charsmax(menu), "\yДобавить бота^n^n\r1. \yДобавить YaPB бота^n%s^n\r3. \y%s^n\r4. \y%s^n^n\r9. \yНазад^n\r0. \yВыход", pod, g_BotsStopped ? "Включить всех ботов" : "Остановить всех ботов", zombie)
-	ShowFixed(id, MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_9|MENU_KEY_0, menu, MENU_TIME, MENU_NAME)
+		formatex(pod, charsmax(pod), "\r2. \yPOD")
+	formatex(menu, charsmax(menu), "\yЕщё^n^n\r1. \yYaPB^n%s^n\r3. \y%s^n\r4. \y%s^n\r5. \y%s^n\r6. \y%s^n^n\r9. \yНазад^n\r0. \yВыход", pod, g_BotsStopped ? "Пуск ботов" : "Стоп ботов", zombie, dm, tdm)
+	ShowFixed(id, MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_9|MENU_KEY_0, menu, MENU_TIME, MENU_NAME)
 }
 
 MoreChoice(id, key) {
@@ -400,6 +402,10 @@ MoreChoice(id, key) {
 		ToggleBots(id)
 	else if (key == 3)
 		OpenZombie(id)
+	else if (key == 4)
+		OpenDeathmatch(id, 1)
+	else if (key == 5)
+		OpenDeathmatch(id, 2)
 }
 
 ToggleBots(id) {
@@ -420,9 +426,45 @@ ToggleBots(id) {
 
 ZombieLabel(dest[], len) {
 	if (ZombieOn())
-		formatex(dest, len, "Выключить зомби режим")
+		formatex(dest, len, "Зомби выкл")
 	else
 		formatex(dest, len, "Зомби режим")
+}
+
+DmLabel(mode, dest[], len) {
+	if (cvar_exists("dm_mode") && get_cvar_num("dm_mode") == mode) {
+		if (mode == 1)
+			formatex(dest, len, "DM выкл")
+		else
+			formatex(dest, len, "TDM выкл")
+	} else if (mode == 1)
+		formatex(dest, len, "Deathmatch")
+	else
+		formatex(dest, len, "Team deathmatch")
+}
+
+OpenDeathmatch(id, mode) {
+	if (!cvar_exists("dm_mode")) {
+		PrintChat(id, "[Admin Panel] Режим недоступен")
+		ShowMore(id)
+		return
+	}
+	if (mode == 1)
+		client_cmd(id, "dm_toggle 1")
+	else
+		client_cmd(id, "dm_toggle 2")
+	ShowMore(id)
+	remove_task(300 + id)
+	new parm[1]
+	parm[0] = id
+	set_task(0.2, "RefreshDeathmatchMenu", 300 + id, parm, sizeof parm)
+}
+
+public RefreshDeathmatchMenu(parm[]) {
+	new id = parm[0]
+	if (!is_user_connected(id) || g_State[id] != ST_MORE)
+		return
+	ShowMore(id)
 }
 
 bool:ZombieOn() {
