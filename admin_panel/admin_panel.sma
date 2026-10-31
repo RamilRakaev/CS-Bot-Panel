@@ -8,6 +8,12 @@
 #define MENU_TIME 60
 #define BOT_LIMIT 64
 #define PAGE_SIZE 6
+#define SETUP_MAX 31
+#define TASK_VALVE 9100
+#define SET_OFF 0
+#define SET_ZM 1
+#define SET_DM 2
+#define SET_TDM 3
 
 enum {
 	ST_MAIN = 0,
@@ -18,7 +24,10 @@ enum {
 	ST_SKILL,
 	ST_PERSON,
 	ST_TEAM,
-	ST_LIST
+	ST_LIST,
+	ST_SERVER,
+	ST_MAPS,
+	ST_TUNE
 }
 
 enum {
@@ -56,6 +65,16 @@ new g_Vacate
 new bool:g_Locking
 new bool:g_Ready
 new bool:g_BotsStopped
+new g_Maps[96][32]
+new g_MapCount
+new bool:g_MapsLoaded
+new g_PickMap[33]
+new g_SetCount[33][3]
+new g_SetDiff[33][3]
+new g_SetPerson[33][3]
+new g_SetMode[33]
+new g_ValveLeft
+new g_ValveDiff
 
 public plugin_precache() {
 	g_BloodSpray = precache_model("sprites/bloodspray.spr")
@@ -73,6 +92,8 @@ public plugin_init() {
 	register_clcmd("say", "OnSay")
 	register_clcmd("say_team", "OnSay")
 	register_clcmd("admin", "CmdMenu")
+	register_cvar("setup_valve", "0")
+	register_cvar("setup_valve_diff", "1")
 
 	register_menucmd(register_menuid(MENU_NAME), 1023, "OnMenu")
 
@@ -164,6 +185,9 @@ public OnMenu(id, key) {
 		case ST_PERSON: PersonChoice(id, key)
 		case ST_TEAM: TeamChoice(id, key)
 		case ST_LIST: ListChoice(id, key)
+		case ST_SERVER: ServerChoice(id, key)
+		case ST_MAPS: MapChoice(id, key)
+		case ST_TUNE: TuneChoice(id, key)
 	}
 	return PLUGIN_HANDLED
 }
@@ -375,11 +399,11 @@ ShowMore(id) {
 	DmLabel(1, dm, charsmax(dm))
 	DmLabel(2, tdm, charsmax(tdm))
 	if (ZombieOn())
-		formatex(pod, charsmax(pod), "\d2. \dPOD")
+		formatex(pod, charsmax(pod), "\d2. \dДобавить POD бота")
 	else
-		formatex(pod, charsmax(pod), "\r2. \yPOD")
-	formatex(menu, charsmax(menu), "\yЕщё^n^n\r1. \yYaPB^n%s^n\r3. \y%s^n\r4. \y%s^n\r5. \y%s^n\r6. \y%s^n^n\r9. \yНазад^n\r0. \yВыход", pod, g_BotsStopped ? "Пуск ботов" : "Стоп ботов", zombie, dm, tdm)
-	ShowFixed(id, MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_9|MENU_KEY_0, menu, MENU_TIME, MENU_NAME)
+		formatex(pod, charsmax(pod), "\r2. \yДобавить POD бота")
+	formatex(menu, charsmax(menu), "\yЕщё^n^n\r1. \yДобавить YaPB бота^n%s^n\r3. \y%s^n\r4. \y%s^n\r5. \y%s^n\r6. \y%s^n\r7. \yСервер^n^n\r9. \yНазад^n\r0. \yВыход", pod, g_BotsStopped ? "Пуск ботов" : "Стоп ботов", zombie, dm, tdm)
+	ShowFixed(id, MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_7|MENU_KEY_9|MENU_KEY_0, menu, MENU_TIME, MENU_NAME)
 }
 
 MoreChoice(id, key) {
@@ -406,6 +430,8 @@ MoreChoice(id, key) {
 		OpenDeathmatch(id, 1)
 	else if (key == 5)
 		OpenDeathmatch(id, 2)
+	else if (key == 6)
+		ShowServer(id, true)
 }
 
 ToggleBots(id) {
@@ -1073,6 +1099,463 @@ bool:CanOpen(id) {
 	if (!is_dedicated_server())
 		return true
 	return bool:(get_user_flags(id) & ADMIN_MENU)
+}
+
+ShowServer(id, bool:fresh) {
+	if (fresh)
+		FillSetup(id)
+	g_State[id] = ST_SERVER
+	new map[32], valve[48], ya[64], pod[96], mode[32], menu[768]
+	MapTitle(id, map, charsmax(map))
+	BotText(id, KIND_VALVE, valve, charsmax(valve))
+	BotText(id, KIND_YAPB, ya, charsmax(ya))
+	ModeText(id, mode, charsmax(mode))
+	if (g_SetMode[id] == SET_ZM) {
+		new body[64]
+		BotText(id, KIND_POD, body, charsmax(body))
+		formatex(pod, charsmax(pod), "\d4. \dPOD: %s", body)
+	} else {
+		new body[64]
+		BotText(id, KIND_POD, body, charsmax(body))
+		formatex(pod, charsmax(pod), "\r4. \yPOD: %s", body)
+	}
+	formatex(menu, charsmax(menu), "\yСервер^n^n\r1. \yКарта: %s^n\r2. \yValve: %s^n\r3. \yYaPB: %s^n%s^n\r5. \yРежим: %s^n\r6. \yСтарт^n^n\r9. \yНазад^n\r0. \yВыход", map, valve, ya, pod, mode)
+	ShowFixed(id, MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_9|MENU_KEY_0, menu, MENU_TIME, MENU_NAME)
+}
+
+ServerChoice(id, key) {
+	if (key == 8) {
+		ShowMore(id)
+		return
+	}
+	if (key == 9)
+		return
+	switch (key) {
+		case 0: ShowMaps(id)
+		case 1: OpenTune(id, KIND_VALVE)
+		case 2: OpenTune(id, KIND_YAPB)
+		case 3: {
+			if (g_SetMode[id] == SET_ZM) {
+				PrintConsole(id, "[Admin Panel] POD-ботов нельзя добавлять в зомби-режиме: они не атакуют зомби.")
+				ShowServer(id, false)
+			} else
+				OpenTune(id, KIND_POD)
+		}
+		case 4: {
+			g_SetMode[id]++
+			if (g_SetMode[id] > SET_TDM)
+				g_SetMode[id] = SET_OFF
+			ShowServer(id, false)
+		}
+		case 5: ApplySetup(id)
+	}
+}
+
+ShowMaps(id) {
+	LoadMaps()
+	g_State[id] = ST_MAPS
+	new pages = (g_MapCount + PAGE_SIZE - 1) / PAGE_SIZE
+	if (pages < 1)
+		pages = 1
+	if (g_Page[id] >= pages)
+		g_Page[id] = pages - 1
+	if (g_Page[id] < 0)
+		g_Page[id] = 0
+	new start = g_Page[id] * PAGE_SIZE
+	new shown = g_MapCount - start
+	if (shown > PAGE_SIZE)
+		shown = PAGE_SIZE
+	if (shown < 0)
+		shown = 0
+	new menu[768], len, keys
+	if (pages > 1)
+		len = formatex(menu, charsmax(menu), "\yКарта \d(%d/%d)^n^n", g_Page[id] + 1, pages)
+	else
+		len = formatex(menu, charsmax(menu), "\yКарта^n^n")
+	if (!shown)
+		len += formatex(menu[len], charsmax(menu) - len, "\dНет карт^n")
+	for (new i = 0; i < shown; i++) {
+		len += formatex(menu[len], charsmax(menu) - len, "\r%d. \y%s^n", i + 1, g_Maps[start + i])
+		keys |= (1 << i)
+	}
+	len += formatex(menu[len], charsmax(menu) - len, "^n")
+	if (start + PAGE_SIZE < g_MapCount) {
+		len += formatex(menu[len], charsmax(menu) - len, "\r7. \yДальше^n")
+		keys |= MENU_KEY_7
+	}
+	if (g_Page[id] > 0) {
+		len += formatex(menu[len], charsmax(menu) - len, "\r8. \yПред.^n")
+		keys |= MENU_KEY_8
+	}
+	formatex(menu[len], charsmax(menu) - len, "\r9. \yНазад^n\r0. \yВыход")
+	keys |= MENU_KEY_9 | MENU_KEY_0
+	ShowFixed(id, keys, menu, MENU_TIME, MENU_NAME)
+}
+
+MapChoice(id, key) {
+	if (key == 8) {
+		ShowServer(id, false)
+		return
+	}
+	if (key == 9)
+		return
+	if (key == 6) {
+		g_Page[id]++
+		ShowMaps(id)
+		return
+	}
+	if (key == 7) {
+		g_Page[id]--
+		ShowMaps(id)
+		return
+	}
+	LoadMaps()
+	new index = g_Page[id] * PAGE_SIZE + key
+	if (index < 0 || index >= g_MapCount)
+		return
+	g_PickMap[id] = index
+	ShowServer(id, false)
+}
+
+OpenTune(id, kind) {
+	g_Kind[id] = kind
+	ShowTune(id)
+}
+
+ShowTune(id) {
+	g_State[id] = ST_TUNE
+	new kind[16], skill[32], menu[512]
+	KindName(g_Kind[id], kind, charsmax(kind))
+	SkillName(g_Kind[id], g_SetDiff[id][g_Kind[id]], skill, charsmax(skill))
+	if (g_Kind[id] == KIND_VALVE)
+		formatex(menu, charsmax(menu), "\y%s^n^n\r1. \yМеньше^n\r2. \yБольше: %d^n\r3. \yСложность: %s^n^n\r9. \yНазад^n\r0. \yВыход", kind, g_SetCount[id][KIND_VALVE], skill)
+	else {
+		new person[32]
+		PersonName(g_Kind[id], g_SetPerson[id][g_Kind[id]], person, charsmax(person))
+		formatex(menu, charsmax(menu), "\y%s^n^n\r1. \yМеньше^n\r2. \yБольше: %d^n\r3. \yСложность: %s^n\r4. \yХарактер: %s^n^n\r9. \yНазад^n\r0. \yВыход", kind, g_SetCount[id][g_Kind[id]], skill, person)
+	}
+	new keys = MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_9|MENU_KEY_0
+	if (g_Kind[id] != KIND_VALVE)
+		keys |= MENU_KEY_4
+	ShowFixed(id, keys, menu, MENU_TIME, MENU_NAME)
+}
+
+TuneChoice(id, key) {
+	if (key == 8) {
+		ShowServer(id, false)
+		return
+	}
+	if (key == 9)
+		return
+	new kind = g_Kind[id]
+	if (key == 0 && g_SetCount[id][kind] > 0)
+		g_SetCount[id][kind]--
+	else if (key == 1 && g_SetCount[id][kind] < SETUP_MAX)
+		g_SetCount[id][kind]++
+	else if (key == 2)
+		CycleDiff(id)
+	else if (key == 3 && kind != KIND_VALVE)
+		CyclePerson(id)
+	ShowTune(id)
+}
+
+ApplySetup(id) {
+	LoadMaps()
+	if (g_PickMap[id] < 0 || g_PickMap[id] >= g_MapCount) {
+		PrintChat(id, "[Admin Panel] Нет карты")
+		ShowServer(id, false)
+		return
+	}
+	if (!WriteSetup(id)) {
+		PrintChat(id, "[Admin Panel] Не удалось записать настройки")
+		ShowServer(id, false)
+		return
+	}
+	new current[32]
+	get_mapname(current, charsmax(current))
+	if (!equali(current, g_Maps[g_PickMap[id]])) {
+		PrintChat(id, "[Admin Panel] Карта: %s", g_Maps[g_PickMap[id]])
+		server_cmd("changelevel %s", g_Maps[g_PickMap[id]])
+		server_exec()
+		return
+	}
+	server_cmd("exec setup.cfg")
+	server_exec()
+	ArmValve()
+	PrintChat(id, "[Admin Panel] Настройки применены")
+	ShowServer(id, false)
+}
+
+bool:WriteSetup(id) {
+	new fp = fopen("setup.cfg", "wt")
+	if (!fp)
+		return false
+	new pod = g_SetMode[id] == SET_ZM ? 0 : g_SetCount[id][KIND_POD]
+	new token[16]
+	YaToken(g_SetPerson[id][KIND_YAPB], token, charsmax(token))
+	fprintf(fp, "yb_quota %d^n", g_SetCount[id][KIND_YAPB])
+	fprintf(fp, "yb_difficulty %d^n", g_SetDiff[id][KIND_YAPB])
+	fprintf(fp, "yb_preferred_personality ^"%s^"^n", token)
+	fprintf(fp, "pb_maxbots %d^n", pod)
+	fprintf(fp, "pb removebots^n")
+	if (pod > 0) {
+		new skill = g_SetDiff[id][KIND_POD]
+		new person = g_SetPerson[id][KIND_POD]
+		for (new i = 0; i < pod; i++)
+			fprintf(fp, "pb add %d %d^n", skill, person)
+	}
+	fprintf(fp, "setup_valve %d^n", g_SetCount[id][KIND_VALVE])
+	fprintf(fp, "setup_valve_diff %d^n", g_SetDiff[id][KIND_VALVE])
+	switch (g_SetMode[id]) {
+		case SET_ZM: {
+			fprintf(fp, "dm_mode 0^n")
+			fprintf(fp, "zombie_mode 1^n")
+		}
+		case SET_DM: {
+			fprintf(fp, "zombie_mode 0^n")
+			fprintf(fp, "dm_mode 1^n")
+		}
+		case SET_TDM: {
+			fprintf(fp, "zombie_mode 0^n")
+			fprintf(fp, "dm_mode 2^n")
+		}
+		default: {
+			fprintf(fp, "zombie_mode 0^n")
+			fprintf(fp, "dm_mode 0^n")
+		}
+	}
+	fclose(fp)
+	return true
+}
+
+FillSetup(id) {
+	LoadMaps()
+	new name[32]
+	get_mapname(name, charsmax(name))
+	g_PickMap[id] = 0
+	for (new i = 0; i < g_MapCount; i++) {
+		if (equali(g_Maps[i], name)) {
+			g_PickMap[id] = i
+			break
+		}
+	}
+	g_SetCount[id][KIND_VALVE] = ClampCount(CountValveBots())
+	g_SetDiff[id][KIND_VALVE] = ClampRange(get_cvar_num("bot_difficulty"), 0, 3, 1)
+	g_SetCount[id][KIND_YAPB] = ClampCount(cvar_exists("yb_quota") ? get_cvar_num("yb_quota") : 0)
+	g_SetDiff[id][KIND_YAPB] = ClampRange(cvar_exists("yb_difficulty") ? get_cvar_num("yb_difficulty") : 2, 0, 4, 2)
+	ReadYaPerson(id)
+	g_SetCount[id][KIND_POD] = ClampCount(CountPod())
+	g_SetDiff[id][KIND_POD] = 50
+	g_SetPerson[id][KIND_POD] = 1
+	if (cvar_exists("zombie_mode") && get_cvar_num("zombie_mode"))
+		g_SetMode[id] = SET_ZM
+	else if (cvar_exists("dm_mode") && get_cvar_num("dm_mode") == 1)
+		g_SetMode[id] = SET_DM
+	else if (cvar_exists("dm_mode") && get_cvar_num("dm_mode") == 2)
+		g_SetMode[id] = SET_TDM
+	else
+		g_SetMode[id] = SET_OFF
+}
+
+LoadMaps() {
+	if (g_MapsLoaded)
+		return
+	g_MapsLoaded = true
+	new file[64], FileType:type
+	new dir = open_dir("maps", file, charsmax(file), type)
+	if (!dir) {
+		copy(g_Maps[0], charsmax(g_Maps[]), "de_dust2")
+		g_MapCount = 1
+		return
+	}
+	do {
+		if (type != FileType_File)
+			continue
+		new len = strlen(file)
+		if (len < 5 || !equali(file[len - 4], ".bsp"))
+			continue
+		file[len - 4] = 0
+		if (!SafeMap(file) || g_MapCount >= sizeof g_Maps)
+			continue
+		copy(g_Maps[g_MapCount], charsmax(g_Maps[]), file)
+		g_MapCount++
+	} while (next_file(dir, file, charsmax(file), type))
+	close_dir(dir)
+	if (!g_MapCount) {
+		copy(g_Maps[0], charsmax(g_Maps[]), "de_dust2")
+		g_MapCount = 1
+		return
+	}
+	SortCustom2D(g_Maps, g_MapCount, "MapSort")
+}
+
+public MapSort(const elem1[], const elem2[], const array[], data[], data_size) {
+	#pragma unused array, data, data_size
+	return strcmp(elem1, elem2, true)
+}
+
+ArmValve() {
+	g_ValveDiff = ClampRange(get_cvar_num("setup_valve_diff"), 0, 3, 1)
+	new want = ClampCount(get_cvar_num("setup_valve"))
+	new have
+	for (new i = 1; i <= MaxClients; i++) {
+		if (IsValveBot(i))
+			have++
+	}
+	new keep = have > want ? want : have
+	new kicked
+	for (new i = 1; i <= MaxClients && kicked < have - keep; i++) {
+		if (!IsValveBot(i))
+			continue
+		server_cmd("kick #%d", get_user_userid(i))
+		kicked++
+	}
+	server_cmd("bot_difficulty %d", g_ValveDiff)
+	server_exec()
+	g_ValveLeft = want - keep
+	remove_task(TASK_VALVE)
+	if (g_ValveLeft > 0)
+		set_task(0.6, "AddSetupValve", TASK_VALVE)
+}
+
+public AddSetupValve() {
+	if (g_ValveLeft <= 0 || CountBots() >= BOT_LIMIT)
+		return
+	server_cmd("bot_difficulty %d", g_ValveDiff)
+	server_cmd("bot_add")
+	server_exec()
+	g_ValveLeft--
+	if (g_ValveLeft > 0)
+		set_task(0.4, "AddSetupValve", TASK_VALVE)
+}
+
+MapTitle(id, dest[], len) {
+	LoadMaps()
+	if (g_PickMap[id] < 0 || g_PickMap[id] >= g_MapCount)
+		copy(dest, len, "-")
+	else
+		copy(dest, len, g_Maps[g_PickMap[id]])
+}
+
+BotText(id, kind, dest[], len) {
+	new skill[32]
+	SkillName(kind, g_SetDiff[id][kind], skill, charsmax(skill))
+	if (kind == KIND_VALVE)
+		formatex(dest, len, "%d, %s", g_SetCount[id][kind], skill)
+	else {
+		new person[32]
+		PersonName(kind, g_SetPerson[id][kind], person, charsmax(person))
+		formatex(dest, len, "%d, %s, %s", g_SetCount[id][kind], skill, person)
+	}
+}
+
+ModeText(id, dest[], len) {
+	switch (g_SetMode[id]) {
+		case SET_ZM: copy(dest, len, "Зомби")
+		case SET_DM: copy(dest, len, "Deathmatch")
+		case SET_TDM: copy(dest, len, "Team deathmatch")
+		default: copy(dest, len, "Выкл")
+	}
+}
+
+CycleDiff(id) {
+	switch (g_Kind[id]) {
+		case KIND_YAPB: {
+			g_SetDiff[id][KIND_YAPB]++
+			if (g_SetDiff[id][KIND_YAPB] > 4)
+				g_SetDiff[id][KIND_YAPB] = 0
+		}
+		case KIND_POD: {
+			new skills[7] = { 10, 30, 50, 70, 90, 100, 101 }
+			new next = 10
+			for (new i = 0; i < 6; i++) {
+				if (skills[i] == g_SetDiff[id][KIND_POD]) {
+					next = skills[i + 1]
+					break
+				}
+			}
+			g_SetDiff[id][KIND_POD] = next
+		}
+		default: {
+			g_SetDiff[id][KIND_VALVE]++
+			if (g_SetDiff[id][KIND_VALVE] > 3)
+				g_SetDiff[id][KIND_VALVE] = 0
+		}
+	}
+}
+
+CyclePerson(id) {
+	if (g_Kind[id] == KIND_POD) {
+		switch (g_SetPerson[id][KIND_POD]) {
+			case 1: g_SetPerson[id][KIND_POD] = 2
+			case 2: g_SetPerson[id][KIND_POD] = 3
+			case 3: g_SetPerson[id][KIND_POD] = 5
+			default: g_SetPerson[id][KIND_POD] = 1
+		}
+		return
+	}
+	g_SetPerson[id][KIND_YAPB]++
+	if (g_SetPerson[id][KIND_YAPB] > 2)
+		g_SetPerson[id][KIND_YAPB] = 0
+}
+
+ReadYaPerson(id) {
+	new person[16]
+	if (cvar_exists("yb_preferred_personality"))
+		get_cvar_string("yb_preferred_personality", person, charsmax(person))
+	if (equali(person, "rusher"))
+		g_SetPerson[id][KIND_YAPB] = 1
+	else if (equali(person, "careful"))
+		g_SetPerson[id][KIND_YAPB] = 2
+	else
+		g_SetPerson[id][KIND_YAPB] = 0
+}
+
+YaToken(person, dest[], len) {
+	switch (person) {
+		case 1: copy(dest, len, "rusher")
+		case 2: copy(dest, len, "careful")
+		default: copy(dest, len, "normal")
+	}
+}
+
+ClampCount(value) {
+	if (value < 0)
+		return 0
+	if (value > SETUP_MAX)
+		return SETUP_MAX
+	return value
+}
+
+ClampRange(value, low, high, fallback) {
+	if (value < low || value > high)
+		return fallback
+	return value
+}
+
+CountPod() {
+	new count
+	for (new i = 1; i <= MaxClients; i++) {
+		if (!is_user_connected(i) || !is_user_bot(i) || is_user_hltv(i))
+			continue
+		if (IsValveBot(i) || IsYaPB(i))
+			continue
+		count++
+	}
+	return count
+}
+
+bool:SafeMap(const name[]) {
+	new len = strlen(name)
+	if (len < 1 || len > 31)
+		return false
+	for (new i = 0; i < len; i++) {
+		new ch = name[i]
+		if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_')
+			continue
+		return false
+	}
+	return true
 }
 
 CountBots() {

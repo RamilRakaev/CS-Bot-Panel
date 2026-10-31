@@ -10,8 +10,15 @@
 #define MODE_DM 1
 #define MODE_TDM 2
 #define TASK_EQUIP 5000
+#define TASK_RESPAWN 6100
+#define TASK_LAUNCH 6200
 #define MAX_SPAWNS 128
 #define SPAWN_GAP 400.0
+#define PRICE_VESTHELM 1000
+#define PRICE_HE 300
+#define PRICE_FLASH 200
+#define PRICE_SMOKE 300
+#define PRICE_GRENADES (PRICE_HE + PRICE_FLASH + PRICE_FLASH + PRICE_SMOKE)
 
 enum _:CvarId {
 	C_FFA = 0,
@@ -28,6 +35,7 @@ enum _:CvarId {
 }
 
 new g_Mode
+new g_WantMode
 new g_Cvar
 new g_Zombie
 new bool:g_Lock
@@ -37,6 +45,7 @@ new g_Old[C_NUM][32]
 new Float:g_Origin[MAX_SPAWNS][3]
 new Float:g_Angles[MAX_SPAWNS][3]
 new g_Spawns
+new g_Next
 
 new const g_CvarName[C_NUM][] = {
 	"mp_freeforall",
@@ -81,6 +90,14 @@ new const g_Pistol[][] = {
 	"weapon_fiveseven"
 }
 
+new const g_PrimaryPrice[sizeof g_Primary] = {
+	2500, 3100, 3500, 3500, 2000, 2250, 4750, 2750, 4200, 5000, 5750, 2350, 1500, 1700, 1250, 1400, 1700, 3000
+}
+
+new const g_PistolPrice[sizeof g_Pistol] = {
+	500, 400, 650, 600, 800, 750
+}
+
 public plugin_init() {
 	register_plugin(PLUGIN_NAME, "1.0", "Admin")
 
@@ -95,6 +112,7 @@ public plugin_init() {
 	RegisterHamPlayer(Ham_Spawn, "OnSpawn", 1)
 	RegisterHookChain(RG_CBasePlayer_GiveNamedItem, "OnGive")
 	WriteMode(MODE_OFF)
+	ClearStuck()
 }
 
 public plugin_cfg() {
@@ -128,9 +146,25 @@ public OnModeCvar(pcvar, const oldValue[], const newValue[]) {
 	#pragma unused pcvar, oldValue
 	if (g_Lock)
 		return
-	if (str_to_num(newValue) == g_Mode)
+	new want = str_to_num(newValue)
+	if (want == g_Mode)
 		return
-	WriteMode(g_Mode)
+	if (want != MODE_OFF && want != MODE_DM && want != MODE_TDM) {
+		WriteMode(g_Mode)
+		return
+	}
+	g_WantMode = want
+	remove_task(TASK_LAUNCH)
+	set_task(1.0, "ApplyLauncherMode", TASK_LAUNCH)
+}
+
+public ApplyLauncherMode() {
+	if (g_WantMode == g_Mode)
+		return
+	if (g_WantMode == MODE_DM || g_WantMode == MODE_TDM)
+		Enable(0, g_WantMode)
+	else
+		Disable()
 }
 
 public OnZombieCvar(pcvar, const oldValue[], const newValue[]) {
@@ -172,7 +206,8 @@ Enable(id, mode) {
 	g_Mode = mode
 	WriteMode(mode)
 	ApplyCvars(mode)
-	RespawnAll()
+	remove_task(TASK_RESPAWN)
+	set_task(1.2, "RespawnAll", TASK_RESPAWN)
 	if (mode == MODE_DM)
 		Announce("[Deathmatch] Режим включен")
 	else
@@ -183,6 +218,7 @@ Disable() {
 	new was = g_Mode
 	g_Mode = MODE_OFF
 	WriteMode(MODE_OFF)
+	remove_task(TASK_RESPAWN)
 	for (new i = 1; i <= MaxClients; i++)
 		remove_task(TASK_EQUIP + i)
 	RestoreCvars()
@@ -238,43 +274,81 @@ SetCvar(id, const value[]) {
 		set_cvar_string(g_CvarName[id], value)
 }
 
-RespawnAll() {
-	for (new i = 1; i <= MaxClients; i++) {
-		if (!Playing(i))
-			continue
-		rg_round_respawn(i)
+public RespawnAll() {
+	if (!g_Mode)
+		return
+	ApplyCvars(g_Mode)
+	g_Next = 1
+	remove_task(TASK_RESPAWN)
+	set_task(0.05, "RespawnStep", TASK_RESPAWN)
+}
+
+public RespawnStep() {
+	if (!g_Mode)
+		return
+	while (g_Next <= MaxClients && !Playing(g_Next))
+		g_Next++
+	if (g_Next > MaxClients)
+		return
+	rg_round_respawn(g_Next)
+	g_Next++
+	set_task(0.15, "RespawnStep", TASK_RESPAWN)
+}
+
+ClearStuck() {
+	if (cvar_exists("bot_deathmatch"))
+		set_cvar_num("bot_deathmatch", 0)
+	if (cvar_exists("mp_freeforall"))
+		set_cvar_num("mp_freeforall", 0)
+	if (cvar_exists("yb_csdm_mode"))
+		set_cvar_num("yb_csdm_mode", 0)
+	if (cvar_exists("pb_ffa"))
+		set_cvar_num("pb_ffa", 0)
+	if (cvar_exists("mp_forcerespawn"))
+		set_cvar_num("mp_forcerespawn", 0)
+	if (cvar_exists("mp_round_infinite")) {
+		new value[8]
+		get_cvar_string("mp_round_infinite", value, charsmax(value))
+		if (equal(value, "efg"))
+			set_cvar_string("mp_round_infinite", "0")
 	}
+	if (cvar_exists("mp_roundrespawn_time") && get_cvar_num("mp_roundrespawn_time") < 0)
+		set_cvar_num("mp_roundrespawn_time", 20)
 }
 
 GiveDm(id) {
 	if (!g_Spawns)
 		CollectSpawns()
 	MoveRandom(id)
+	GiveRandom(id)
+}
 
+GiveTdm(id) {
+	new money = MaxMoney() - GiveRandom(id)
+	if (money < 0)
+		money = 0
+	cs_set_user_money(id, money, 1)
+}
+
+GiveRandom(id) {
 	rg_remove_all_items(id)
 	rg_remove_item(id, "weapon_c4", true)
 	rg_give_item(id, "weapon_knife")
 
-	new primary[24]
-	copy(primary, charsmax(primary), g_Primary[random_num(0, sizeof g_Primary - 1)])
-	new pistol[24]
-	copy(pistol, charsmax(pistol), g_Pistol[random_num(0, sizeof g_Pistol - 1)])
-	GiveGun(id, primary)
-	GiveGun(id, pistol)
+	new primary = random_num(0, sizeof g_Primary - 1)
+	new pistol = random_num(0, sizeof g_Pistol - 1)
+	GiveGun(id, g_Primary[primary])
+	GiveGun(id, g_Pistol[pistol])
 	rg_give_item(id, "weapon_hegrenade")
 	rg_give_item(id, "weapon_flashbang")
 	rg_give_item(id, "weapon_flashbang")
 	rg_give_item(id, "weapon_smokegrenade")
 	rg_set_user_armor(id, 100, ARMOR_VESTHELM)
 
-	new weapon = rg_find_weapon_bpack_by_name(id, primary)
+	new weapon = rg_find_weapon_bpack_by_name(id, g_Primary[primary])
 	if (weapon)
 		rg_switch_weapon(id, weapon)
-}
-
-GiveTdm(id) {
-	rg_give_default_items(id)
-	cs_set_user_money(id, MaxMoney(), 1)
+	return PRICE_VESTHELM + PRICE_GRENADES + g_PrimaryPrice[primary] + g_PistolPrice[pistol]
 }
 
 GiveGun(id, const name[]) {
